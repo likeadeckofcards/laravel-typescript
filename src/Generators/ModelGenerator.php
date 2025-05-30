@@ -18,8 +18,8 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionMethod;
 use Throwable;
@@ -30,10 +30,15 @@ class ModelGenerator extends AbstractGenerator
     /** @var Collection<Column> */
     protected Collection $columns;
 
+    private $majorVersion;
+
     public function __construct()
     {
         // Enums aren't supported by DBAL, so map enum columns to string.
-        DB::getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('enum', 'string');
+        $this->majorVersion = (int)explode('.', app()->version())[0] ?? '';
+        if ($this->majorVersion <= 10) {
+            DB::getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('enum', 'string');
+        }
     }
 
     public function getDefinition(): ?string
@@ -44,7 +49,7 @@ class ModelGenerator extends AbstractGenerator
             $this->getManyRelations(),
             $this->getAccessors(),
         ])
-            ->filter(fn (string $part) => !empty($part))
+            ->filter(fn(string $part) => !empty($part))
             ->join(PHP_EOL . '        ');
     }
 
@@ -56,20 +61,36 @@ class ModelGenerator extends AbstractGenerator
     {
         $this->model = $this->reflection->newInstance();
 
-        $this->columns = collect(
-            $this->model->getConnection()
-                ->getDoctrineSchemaManager()
-                ->listTableColumns($this->model->getConnection()->getTablePrefix() . $this->model->getTable())
-        );
+        if ($this->majorVersion >= 11) {
+            $dbColumns = collect(
+                $this->model->getConnection()
+                    ->getSchemaBuilder()
+                    ->getColumns($this->model->getTable())
+            );
+        } else {
+            $dbColumns = collect(
+                $this->model->getConnection()
+                    ->getDoctrineSchemaManager()
+                    ->listTableColumns($this->model->getConnection()->getTablePrefix() . $this->model->getTable())
+            )->map(function (Column $column) {
+                return [
+                    'name' => $column->getName(),
+                    'type' => $column->getType()->getName(),
+                    'nullable' => $column->getNotnull() === false,
+                ];
+            });
+        }
+
+        $this->columns = $dbColumns;
     }
 
     protected function getProperties(): string
     {
-        return $this->columns->map(function (Column $column) {
-            return (string) new TypeScriptProperty(
-                name: $column->getName(),
-                types: $this->getPropertyType($column->getType()->getName()),
-                nullable: !$column->getNotnull()
+        return $this->columns->map(function (array $column) {
+            return (string)new TypeScriptProperty(
+                name: $column['name'],
+                types: $this->getPropertyType($column['type']),
+                nullable: $column['nullable']
             );
         })
             ->join(PHP_EOL . '        ');
@@ -77,29 +98,29 @@ class ModelGenerator extends AbstractGenerator
 
     protected function getAccessors(): string
     {
-        $relationsToSkip =  $this->getRelationMethods()
+        $relationsToSkip = $this->getRelationMethods()
             ->map(function (ReflectionMethod $method) {
                 return Str::snake($method->getName());
             });
 
         return $this->getMethods()
-            ->filter(fn (ReflectionMethod $method) => Str::startsWith($method->getName(), 'get'))
-            ->filter(fn (ReflectionMethod $method) => Str::endsWith($method->getName(), 'Attribute'))
+            ->filter(fn(ReflectionMethod $method) => Str::startsWith($method->getName(), 'get'))
+            ->filter(fn(ReflectionMethod $method) => Str::endsWith($method->getName(), 'Attribute'))
             ->mapWithKeys(function (ReflectionMethod $method) {
-                $property = (string) Str::of($method->getName())
+                $property = (string)Str::of($method->getName())
                     ->between('get', 'Attribute')
                     ->snake();
 
                 return [$property => $method];
             })
             ->reject(function (ReflectionMethod $method, string $property) {
-                return $this->columns->contains(fn (Column $column) => $column->getName() == $property);
+                return $this->columns->contains(fn(array $column) => $column['name'] == $property);
             })
             ->reject(function (ReflectionMethod $method, string $property) use ($relationsToSkip) {
                 return $relationsToSkip->contains($property);
             })
             ->map(function (ReflectionMethod $method, string $property) {
-                return (string) new TypeScriptProperty(
+                return (string)new TypeScriptProperty(
                     name: $property,
                     types: TypeScriptType::fromMethod($method),
                     optional: true,
@@ -113,7 +134,7 @@ class ModelGenerator extends AbstractGenerator
     {
         return $this->getRelationMethods()
             ->map(function (ReflectionMethod $method) {
-                return (string) new TypeScriptProperty(
+                return (string)new TypeScriptProperty(
                     name: Str::snake($method->getName()),
                     types: $this->getRelationType($method),
                     optional: true,
@@ -126,9 +147,9 @@ class ModelGenerator extends AbstractGenerator
     protected function getManyRelations(): string
     {
         return $this->getRelationMethods()
-            ->filter(fn (ReflectionMethod $method) => $this->isManyRelation($method))
+            ->filter(fn(ReflectionMethod $method) => $this->isManyRelation($method))
             ->map(function (ReflectionMethod $method) {
-                return (string) new TypeScriptProperty(
+                return (string)new TypeScriptProperty(
                     name: Str::snake($method->getName()) . '_count',
                     types: TypeScriptType::NUMBER,
                     optional: true,
@@ -162,8 +183,8 @@ class ModelGenerator extends AbstractGenerator
     protected function getMethods(): Collection
     {
         return collect($this->reflection->getMethods(ReflectionMethod::IS_PUBLIC))
-            ->reject(fn (ReflectionMethod $method) => $method->isStatic())
-            ->reject(fn (ReflectionMethod $method) => $method->getNumberOfParameters());
+            ->reject(fn(ReflectionMethod $method) => $method->isStatic())
+            ->reject(fn(ReflectionMethod $method) => $method->getNumberOfParameters());
     }
 
     protected function getPropertyType(string $type): string|array
