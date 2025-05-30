@@ -21,11 +21,11 @@
         "spatie/laravel-package-tools": "^1.11.0"
     },
     "require-dev": {
-        "brianium/paratest": "^6.2",
-        "nunomaduro/collision": "^5.3|^6.1.0",
-        "larastan/larastan": "^0.7.11|^2.0.1",
+        "brianium/paratest": "^6.2|^7.0",
+        "nunomaduro/collision": "^5.3|^6.1.0|^7.0|^8.0",
+        "larastan/larastan": "^0.7.11|^2.0.1|^3.0",
         "orchestra/testbench": "^6.15|^7.0.1|^8.0|^9.0|^10.0",
-        "phpunit/phpunit": "^9.3|^10.0"
+        "phpunit/phpunit": "^9.3|^10.0|^11.0"
     },
     "autoload": {
         "psr-4": {
