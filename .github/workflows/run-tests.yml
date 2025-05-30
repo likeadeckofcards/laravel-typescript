@@ -15,8 +15,6 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         php: [8.1, 8.2, 8.3, 8.4]
         laravel:
-          - version: ^8.0
-            testBench: ^6.6
           - version: ^9.0
             testBench: ^7.0
           - version: ^10.0
@@ -28,11 +26,8 @@ jobs:
         stability: [prefer-lowest, prefer-stable]
         exclude:
           - laravel:
-              version: ^8.0
-            php: 8.3
-          - laravel:
-              version: ^8.0
-            php: 8.4
+              version: ^9.0
+            php: 8.2
           - laravel:
               version: ^9.0
             php: 8.3
@@ -70,4 +65,4 @@ jobs:
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: Execute tests
-        run: vendor/bin/phpunit
+        run: vendor/bin/phpunit --no-coverage
